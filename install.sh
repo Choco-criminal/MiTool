@@ -1,39 +1,29 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/bin/bash
 
 echo
 
-if [ ! -d "$HOME/storage" ]; then
-    echo -e "\nGrant permission: termux-setup-storage\nThen rerun the command.\n"
-    exit 1
-fi
-
-if [ ! -d "/data/data/com.termux.api" ]; then
-    echo -e "\ncom.termux.api app is not installed\nPlease install it first\n"
-    exit 1
-fi
-
 arch=$(dpkg --print-architecture)
 
-if [[ "$arch" != "aarch64" && "$arch" != "arm" ]]; then
+if [[ "$arch" != "amd64" && "$arch" != "i386" && "$arch" != "arm64" && "$arch" != "armhf" ]]; then
     echo "MiTool does not support architecture $arch"
     exit 1
 fi
 
-mitoolusers="$PREFIX/bin/.mitoolusersok"
-miunlockusers="$PREFIX/bin/.miunlockusersok"
+mitoolusers="/usr/local/bin/.mitoolusersok"
+miunlockusers="/usr/local/bin/.miunlockusersok"
 
 if [ ! -f "$mitoolusers" ]; then
     if [ ! -f "$miunlockusers" ]; then
         echo -ne "\rapt upgrade ..."
-        apt upgrade > /dev/null 2> >(grep -v "apt does not have a stable CLI interface")
+        sudo apt upgrade -y > /dev/null
     fi
-    curl -Is https://github.com/offici5l/MiTool/releases/download/tracking/totalusers> /dev/null 2>&1
-    touch "$mitoolusers"
+    curl -Is https://github.com/offici5l/MiTool/releases/download/tracking/totalusers > /dev/null 2>&1
+    sudo touch "$mitoolusers"
 fi
 
-echo -ne "\rurl check ..."
+echo -ne "\rURL check ..."
 
-main_repo=$(grep -E '^deb ' /data/data/com.termux/files/usr/etc/apt/sources.list | awk '{print $2}' | head -n 1)
+main_repo=$(grep -E '^deb ' /etc/apt/sources.list | awk '{print $2}' | head -n 1)
 
 curl -s --retry 4 $main_repo > /dev/null
 exit_code=$?
@@ -60,22 +50,20 @@ elif [ $exit_code -eq 35 ]; then
 fi
 
 echo -ne "\rapt update ..."
-apt update > /dev/null 2> >(grep -v "apt does not have a stable CLI interface")
+sudo apt update > /dev/null
 
 charit=-1
 total=29
 start_time=$(date +%s)
 
 _progress() {
-    charit=$((charit + 1)) 
+    charit=$((charit + 1))
     percentage=$((charit * 100 / total))
     echo -ne "\rProgress: $charit/$total ($percentage%)"
     if [ $percentage -eq 100 ]; then
         end_time=$(date +%s)
         elapsed_time=$((end_time - start_time))
-        echo -ne "\rProgress: $charit/$total ($percentage%) Took: $elapsed_time seconds"
-    else
-        echo -ne "\rProgress: $charit/$total ($percentage%)"
+        echo -ne "\rProgress: $charit/$total ($percentage%) Took: $elapsed_time seconds\n"
     fi
 }
 
@@ -83,77 +71,26 @@ _progress
 
 url="https://raw.githubusercontent.com/nohajc/nohajc.github.io/master/dists/termux/extras/binary-${arch}"
 
-get_version() {
-  package_name="$1"
-  local __resultvar=$2
-
-  version=$(curl -s "$url/Packages" | awk -v package="$package_name" '
-    $0 ~ "^Package: " package {found=1} 
-    found && /^Version:/ {print $2; exit}
-  ')
-  eval $__resultvar="'$version'"
-}
-
-libprotobuf_version_c=""
-termux_adb_version_c=""
-
-get_version "libprotobuf-tadb-core" libprotobuf_version_c
-get_version "termux-adb" termux_adb_version_c
-
-libprotobuf_version_i=$(pkg show libprotobuf-tadb-core 2>/dev/null | grep Version | cut -d ' ' -f 2)
-termux_adb_version_i=$(pkg show termux-adb 2>/dev/null | grep Version | cut -d ' ' -f 2)
-
-# Function to compare versions without printing anything if the package is already updated
-compare_versions() {
-  package_name="$1"
-  available_version="$2"
-  installed_version="$3"
-  if [ "$installed_version" != "$available_version" ]; then
-    curl -s -O "$url/${package_name}_${available_version}_${arch}.deb"
-    dpkg --force-overwrite -i "${package_name}_${available_version}_${arch}.deb" >/dev/null 2>&1
-    rm -f "${package_name}_${available_version}_${arch}.deb"
-  fi
-
-  _progress
-
-}
-
-compare_versions "libprotobuf-tadb-core" "$libprotobuf_version_c" "$libprotobuf_version_i"
-compare_versions "termux-adb" "$termux_adb_version_c" "$termux_adb_version_i"
-
-ln -sf "$PREFIX/bin/termux-fastboot" "$PREFIX/bin/fastboot" && ln -sf "$PREFIX/bin/termux-adb" "$PREFIX/bin/adb"
-
 packages=(
-    "libffi"
-    "abseil-cpp"
-    "termux-api"
-    "libusb"
-    "brotli"
-    "python"
-    "python-pip"
-    "libexpat"
-    "pkg-config"
+    "libprotobuf-dev"
+    "adb"
+    "python3"
+    "python3-pip"
+    "libffi-dev"
+    "libusb-1.0-0-dev"
+    "zlib1g-dev"
     "openssl"
-    "libc++"
-    "zlib"
-    "zstd"
-    "liblz4"
-    "pv"
-    "tur-repo"
-    "python-pycryptodomex"
+    "pkg-config"
+    "wget"
+    "curl"
 )
 
 for package in "${packages[@]}"; do
-    installed=$(apt policy "$package" 2>/dev/null | grep 'Installed' | awk '{print $2}')
-    candidate=$(apt policy "$package" 2>/dev/null | grep 'Candidate' | awk '{print $2}')
-    if [ "$installed" != "$candidate" ]; then
-        apt download "$package" >/dev/null 2>&1
-        dpkg --force-overwrite -i "${package}"*.deb >/dev/null 2>&1
-        rm -f "${package}"*.deb
+    installed=$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep "install ok installed")
+    if [ -z "$installed" ]; then
+        sudo apt install -y "$package" >/dev/null
     fi
-
     _progress
-
 done
 
 libs=(
@@ -163,50 +100,45 @@ libs=(
 )
 
 for lib in "${libs[@]}"; do
-    installed_version=$(pip show "$lib" 2>/dev/null | grep Version | awk '{print $2}')
-    latest_version=$(pip index versions "$lib" 2>/dev/null | grep 'LATEST:' | awk '{print $2}')
+    installed_version=$(pip3 show "$lib" 2>/dev/null | grep Version | awk '{print $2}')
     if [ -z "$installed_version" ]; then
-        pip install "$lib" -q
-    elif [ "$installed_version" != "$latest_version" ]; then
-        pip install --upgrade "$lib" -q
+        pip3 install "$lib" -q
     fi
-
     _progress
-
 done
 
-curl -s "https://raw.githubusercontent.com/offici5l/MiTool/master/MT/mitool.py" -o "$PREFIX/bin/mitool" && chmod +x "$PREFIX/bin/mitool"
+sudo curl -s "https://raw.githubusercontent.com/offici5l/MiTool/master/MT/mitool.py" -o "/usr/local/bin/mitool" && sudo chmod +x "/usr/local/bin/mitool"
 
 _progress
 
-curl -s "https://raw.githubusercontent.com/offici5l/MiTool/master/MT/mihelp.py" -o "$PREFIX/bin/mihelp" && chmod +x "$PREFIX/bin/mihelp"
+sudo curl -s "https://raw.githubusercontent.com/offici5l/MiTool/master/MT/mihelp.py" -o "/usr/local/bin/mihelp" && sudo chmod +x "/usr/local/bin/mihelp"
 
 _progress
 
-curl -s "https://raw.githubusercontent.com/offici5l/MiTool/master/MT/miflashf.py" -o "$PREFIX/bin/miflashf" && chmod +x "$PREFIX/bin/miflashf"
+sudo curl -s "https://raw.githubusercontent.com/offici5l/MiTool/master/MT/miflashf.py" -o "/usr/local/bin/miflashf" && sudo chmod +x "/usr/local/bin/miflashf"
 
 _progress
 
-curl -s "https://raw.githubusercontent.com/offici5l/MiTool/master/MT/miflashs.py" -o "$PREFIX/bin/miflashs" && chmod +x "$PREFIX/bin/miflashs"
+sudo curl -s "https://raw.githubusercontent.com/offici5l/MiTool/master/MT/miflashs.py" -o "/usr/local/bin/miflashs" && sudo chmod +x "/usr/local/bin/miflashs"
 
 _progress
 
 if [ ! -f "$miunlockusers" ]; then
-    curl -sSL -o "$PREFIX/bin/miunlock" https://github.com/offici5l/MiUnlockTool/releases/latest/download/MiUnlockTool.py
-    touch "$miunlockusers"
+    sudo curl -sSL -o "/usr/local/bin/miunlock" https://github.com/offici5l/MiUnlockTool/releases/latest/download/MiUnlockTool.py
+    sudo touch "$miunlockusers"
 else
-    curl -sSL -o "$PREFIX/bin/miunlock" https://raw.githubusercontent.com/offici5l/MiUnlockTool/master/MiUnlockTool.py
+    sudo curl -sSL -o "/usr/local/bin/miunlock" https://raw.githubusercontent.com/offici5l/MiUnlockTool/master/MiUnlockTool.py
 fi
 
-chmod +x "$PREFIX/bin/miunlock"
+sudo chmod +x "/usr/local/bin/miunlock"
 
 _progress
 
-curl -s "https://raw.githubusercontent.com/offici5l/MiBypassTool/master/MiBypassTool.py" -o "$PREFIX/bin/mibypass" && chmod +x "$PREFIX/bin/mibypass"
+sudo curl -s "https://raw.githubusercontent.com/offici5l/MiBypassTool/master/MiBypassTool.py" -o "/usr/local/bin/mibypass" && sudo chmod +x "/usr/local/bin/mibypass"
 
 _progress
 
-curl -s -L -o $PREFIX/bin/miasst $(curl -s "https://api.github.com/repos/offici5l/MiAssistantTool/releases/latest" | grep "browser_download_url.*miasst_termux_${arch}" | cut -d '"' -f 4) && chmod +x $PREFIX/bin/miasst
+sudo curl -s -L -o /usr/local/bin/miasst $(curl -s "https://api.github.com/repos/offici5l/MiAssistantTool/releases/latest" | grep "browser_download_url.*miasst_termux_${arch}" | cut -d '"' -f 4) && sudo chmod +x /usr/local/bin/miasst
 
 _progress
 
@@ -214,4 +146,4 @@ echo
 
 curl -L -s https://raw.githubusercontent.com/offici5l/MiTool/main/CHANGELOG.md | tac | awk '/^#/{exit} {print "\033[0;34m" $0 "\033[0m"}' | tac
 
-printf "\nuse command: \e[1;32mmitool\e[0m\n\n"
+printf "\nUse command: \e[1;32mmitool\e[0m\n\n"
